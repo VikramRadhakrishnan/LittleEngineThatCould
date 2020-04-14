@@ -10,7 +10,7 @@ tf.keras.backend.set_floatx('float64')
 class Actor:
     """Actor (Policy) Model."""
 
-    def __init__(self, state_size, action_size, fc1_units=400, fc2_units=300, name="Actor"):
+    def __init__(self, state_size, action_size, fc1_units=64, fc2_units=64, name="Actor"):
         """Initialize parameters.
 
         Params
@@ -50,7 +50,7 @@ class Actor:
 class Critic:
     """Critic (Value) Model."""
 
-    def __init__(self, state_size, action_size, fc1_units=400, fc2_units=300, name="Critic"):
+    def __init__(self, state_size, action_size, fc1_units=64, fc2_units=64, name="Critic"):
         """Initialize parameters and build model.
 
         Params
