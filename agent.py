@@ -144,11 +144,5 @@ class DDPG():
             target_model: TF2 model
             tau (float): interpolation parameter 
         """
-        #target_params = target_model.get_weights()
-        #local_params = local_model.get_weights()
-        
-        #target_params = tau*local_params + (1.0 - tau) * target_params
-        
-        #target_model.set_weights(target_params)
         for target_var, local_var in zip(target_model.weights, local_model.weights):
             target_var.assign(tau * local_var + (1.0 - tau) * target_var)
