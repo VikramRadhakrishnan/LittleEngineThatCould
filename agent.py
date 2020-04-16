@@ -82,12 +82,13 @@ class DDPG():
 
         if add_noise:
             action += self.noise.sample()
+
+        return action
         
     @tf.function
-    def _act_tf(self, state, add_noise=True):
-        return self.actor_local.model(state) 
+    def _act_tf(self, state):
+        return self.actor_local.model(state)
 
-    @tf.function
     def learn(self, experiences, gamma):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
@@ -99,6 +100,10 @@ class DDPG():
             experiences : tuple of (s, a, r, s', done) tuples 
             gamma (float): discount factor
         """
+        self._learn_tf(experiences, tf.constant(self.gamma, dtype=tf.float64)) 
+
+    @tf.function
+    def _learn_tf(self, experiences, gamma):
         states, actions, rewards, next_states, dones = experiences
 
         # ---------------------------- update critic ---------------------------- #
@@ -139,9 +144,11 @@ class DDPG():
             target_model: TF2 model
             tau (float): interpolation parameter 
         """
-        target_params = target_model.get_weights()
-        local_params = local_model.get_weights()
+        #target_params = target_model.get_weights()
+        #local_params = local_model.get_weights()
         
-        target_params = tau*local_params + (1.0 - tau) * target_params
+        #target_params = tau*local_params + (1.0 - tau) * target_params
         
-        target_model.set_weights(target_params)
+        #target_model.set_weights(target_params)
+        for target_var, local_var in zip(target_model.weights, local_model.weights):
+            target_var.assign(tau * local_var + (1.0 - tau) * target_var)
