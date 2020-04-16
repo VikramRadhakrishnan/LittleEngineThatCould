@@ -77,13 +77,17 @@ class DDPG():
     def act(self, state, add_noise=True):
         """Returns actions for given state as per current policy."""
         state = np.expand_dims(state, axis=0)
-        action = self.actor_local.model(state).numpy()[0]
+        action = self._act_tf(tf.constant(state))
+        action = action.numpy()[0]
 
         if add_noise:
             action += self.noise.sample()
-            
-        return np.clip(action, -1, 1)
+        
+    @tf.function
+    def _act_tf(self, state, add_noise=True):
+        return self.actor_local.model(state) 
 
+    @tf.function
     def learn(self, experiences, gamma):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
@@ -135,10 +139,8 @@ class DDPG():
             target_model: TF2 model
             tau (float): interpolation parameter 
         """
-        target_params = np.array(target_model.get_weights())
-        local_params = np.array(local_model.get_weights())
-
-        assert len(local_params) == len(target_params), "Local and target model parameters must have the same size"
+        target_params = target_model.get_weights()
+        local_params = local_model.get_weights()
         
         target_params = tau*local_params + (1.0 - tau) * target_params
         
