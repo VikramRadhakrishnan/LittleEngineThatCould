@@ -1,5 +1,5 @@
 from model import Actor, Critic
-from noise_model import OUNoise
+from noise_model import OUNoise, GaussianNoise
 from replay_buffer import ReplayBuffer
 
 import tensorflow as tf
@@ -11,7 +11,7 @@ import numpy as np
 # Deep Deterministic Policy Gradients Agent
 class DDPG():
     """Reinforcement Learning agent that learns using DDPG."""
-    def __init__(self, state_size, action_size, action_high, action_low, actor_lr, critic_lr,
+    def __init__(self, state_size, action_size, actor_lr, critic_lr,
                  random_seed, mu, theta, sigma, buffer_size, batch_size,
                  gamma, tau, n_time_steps, n_learn_updates, device):
 
@@ -83,6 +83,8 @@ class DDPG():
         if add_noise:
             action += self.noise.sample()
 
+        action = action.clip(-1, 1)
+
         return action
         
     @tf.function
@@ -146,3 +148,81 @@ class DDPG():
         """
         for target_var, local_var in zip(target_model.weights, local_model.weights):
             target_var.assign(tau * local_var + (1.0 - tau) * target_var)
+
+class TD3(DDPG):
+    def __init__(self, state_size, action_size, actor_lr, critic_lr,
+                 random_seed, mu, sigma, buffer_size, batch_size,
+                 gamma, tau, n_time_steps, n_learn_updates, device,
+                 actor_update_freq, clip_value):
+        super(TD3, self).__init__(state_size, action_size, actor_lr, critic_lr,
+                                  random_seed, mu, sigma, buffer_size, batch_size,
+                                  gamma, tau, n_time_steps, n_learn_updates, device)
+
+        # Critic Network #2 (w/ Target Network)
+        self.critic2_local = Critic(state_size, action_size, name="Critic2_local")
+        self.critic2_target = Critic(state_size, action_size, name="Critic2_target")
+
+        self.train_step = 0
+        self.actor_update_freq = actor_update_freq
+        self.c = clip_value
+
+    def learn(self, experiences, gamma):
+        """Update policy and value parameters using given batch of experience tuples.
+        target_next_actions = actor_target(next_state) + e
+        Q'_min - min(critic_target1, critic_target2)(next_state, target_next_actions)
+        Q_targets = r + γ * Q'_min
+        where:
+            actor_target(state) -> action
+            critic_target1(state, action) -> Q-value1
+            critic_target2(state, action) -> Q-value2
+        Params
+        ======
+            experiences : tuple of (s, a, r, s', done) tuples 
+            gamma (float): discount factor
+            e: noise
+        """
+        self.train_step += 1
+        self._learn_tf(experiences, tf.constant(self.gamma, dtype=tf.float64))
+
+    @tf.function
+    def _learn_tf(self, experiences, gamma):
+        states, actions, rewards, next_states, dones = experiences
+
+        # ---------------------------- update critic ---------------------------- #
+        with tf.GradientTape(persistent=True) as tape:
+            # Get predicted next-state actions and Q values from target models
+            actions_next = self.actor_target.model(next_states)
+            actions_next += tf.clip_by_value(tf.random.normal(shape=tf.shape(actions_next), mean=0.0, stddev=0.2, dtype=tf.float64), -self.c, self.c)
+            Q1 = self.critic_target.model([next_states, actions_next])
+            Q2 = self.critic2_target.model([next_states, actions_next])
+            Q_targets_next = tf.math.minimum(Q1, Q2)
+            # Compute Q targets for current states (y_i)
+            Q_targets = rewards + (gamma * Q_targets_next * (1 - dones))
+            # Compute critic loss
+            Q1_expected = self.critic_local.model([states, actions])
+            Q2_expected = self.critic2_local.model([states, actions])
+            critic_loss = MSE(Q1_expected, Q_targets) + MSE(Q2_expected, Q_targets)
+        
+        # Minimize the loss
+        critic1_grad = tape.gradient(critic_loss, self.critic_local.model.trainable_variables)
+        critic2_grad = tape.gradient(critic_loss, self.critic2_local.model.trainable_variables)
+        self.critic_optimizer.apply_gradients(zip(critic1_grad, self.critic_local.model.trainable_variables))
+        self.critic_optimizer.apply_gradients(zip(critic2_grad, self.critic2_local.model.trainable_variables))
+
+        if self.train_step % self.actor_update_freq:
+            # ---------------------------- update actor ---------------------------- #
+            with tf.GradientTape() as tape:
+                # Compute actor loss
+                actions_pred = self.actor_local.model(states)
+                actor_loss = -tf.reduce_mean(self.critic_local.model([states, actions_pred]))
+
+            # Minimize the loss
+            actor_grad = tape.gradient(actor_loss, self.actor_local.model.trainable_variables)
+            self.actor_optimizer.apply_gradients(zip(actor_grad, self.actor_local.model.trainable_variables))
+
+            # ----------------------- update target networks ----------------------- #
+            self.soft_update(self.critic_local.model, self.critic_target.model, self.tau)
+            self.soft_update(self.critic2_local.model, self.critic_target.model, self.tau)
+            self.soft_update(self.actor_local.model, self.actor_target.model, self.tau)
+
+
